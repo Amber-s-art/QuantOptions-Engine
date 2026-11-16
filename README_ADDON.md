@@ -1,59 +1,56 @@
-# QuantOptions-Engine — Streamlit integration add-on
+# QuantOptions-Engine — Volatility & Strategy Workbench
 
-This package combines the previously prepared `data/`, `core/`, and `analytics/` modules with a Streamlit research interface. It is supplied separately; it does not modify or push to your GitHub repository.
+A Streamlit research dashboard for listed options. It combines live-ish market snapshots from Yahoo Finance/yfinance with a transparent European Black–Scholes–Merton (BSM) model. It is designed for analysis and paper-trading preparation; it does **not** connect to a broker or submit orders.
 
 ## Run locally
 
 ```bash
 python -m venv .venv
-# Windows PowerShell: .venv\\Scripts\\Activate.ps1
+# Windows: .venv\\Scripts\\activate
 # macOS/Linux: source .venv/bin/activate
-python -m pip install --upgrade pip
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Dashboard sections
+## Dashboard features
 
-- Market chain: standardized calls and puts, export to CSV.
-- Pricing & Greeks: Black–Scholes–Merton model value and analytical Greeks.
-- Implied volatility: numerical IV estimates plotted by strike.
-- Mispricing scan: market midpoint versus a constant-volatility model baseline, with quote-quality/liquidity filters.
-- Sensitivity: Delta/Gamma/Theta/Vega grids across spot and maturity.
-- Monte Carlo & Risk: GBM paths and underlying-price VaR/CVaR.
+- **Ticker discovery:** search company names or symbols through Yahoo Finance, select a result, then load its listed option expirations and chain.
+- **Market chain:** calls and puts with bid, ask, midpoint, last, volume and open interest. Download the selected chain as CSV.
+- **Option calculator:** calculate a BSM theoretical price and Greeks from user-entered inputs, or solve implied volatility from an observed option price and contract specifications.
+- **IV smile/skew:** solve IV for each contract from its bid/ask midpoint and plot IV against strike across expiries.
+- **IV term structure / curve:** plot near-ATM solved IV against expiry.
+- **IV surface:** interactive 3D view of solved IV against moneyness and days to expiry when sufficient valid data exists.
+- **Greeks through time:** select a listed contract and see Delta, Gamma, Theta, Vega, Rho and model value as time to maturity declines. Spot and IV shocks can be adjusted.
+- **Multi-leg strategy lab:** editable option legs, signed quantities (long positive, short negative), entry premiums, volatility/spot scenarios, expiry payoff, scenario repricing and aggregate Greeks. Includes a first-order delta hedge diagnostic.
+- **Paper portfolio ledger:** save an analyzed strategy to a session-only simulated book, see model-marked P&L and aggregate Greeks, and remove positions. No broker order is sent; the ledger is not persistent after the browser session ends.
+- **Research commentary and playbook:** contextual IV observations plus educational summaries of covered calls, protective puts, vertical spreads, straddles, iron condors, calendars and delta hedging.
 
-## Current market-data status
+## Implied volatility methodology
 
-The included `data/fetcher.py` adapter uses `yfinance`. This is convenient for a prototype, but it is **not an official exchange feed and should not be represented as guaranteed real-time data**. The app labels the provider and timestamps each snapshot. Do not use it for live execution decisions.
+For every contract, the app calculates a valid bid/ask midpoint and solves for volatility `sigma` such that:
 
-For India-focused official/authorized real-time data, integrate a broker's authenticated API or obtain a licensed NSE data feed. Examples of documented broker APIs include DhanHQ (REST quotes and WebSocket market feed) and Zerodha Kite Connect (market quotes, instrument master and WebSocket streaming). These require account/API credentials and may have subscriptions, rate limits and exchange data-use terms. Choose your broker before implementing its adapter; the app should consume a provider-neutral `MarketSnapshot` so the UI and pricing engine do not need rewriting.
+`BSM_price(spot, strike, time, rate, sigma, call_or_put, dividend_yield) = observed_mid_price`.
 
-Official documentation:
-- DhanHQ market quotes: https://dhanhq.co/docs/v2/market-quote/
-- DhanHQ live market feed: https://dhanhq.co/docs/v2/live-market-feed/
-- Zerodha Kite Connect market quotes: https://kite.trade/docs/connect/v3/market-quotes/
-- NSE real-time data subscription: https://www.nseindia.com/market-data/real-time-data-subscription
+The numerical solver uses Brent's bracketed root-finding method and checks European no-arbitrage price bounds. Invalid, stale, crossed, missing, or non-identifiable quotes remain flagged rather than receiving a fabricated IV. The provider's displayed IV field is retained for reference only; the app's primary smile/curve/surface uses its own BSM-inverted IV.
 
-## Paper-trading boundary
-
-This version does not connect to a broker, submit orders, simulate fills, or maintain a paper portfolio. Before adding paper trading, implement a separate broker interface with explicit `paper` mode, order/position ledger, fees, slippage, partial fills, market-hours checks, idempotent order IDs, audit logs, and kill switch. Keep market-data credentials in environment variables or Streamlit secrets; never commit tokens or passwords.
-
-## Mathematical conventions
+## Model conventions and limitations
 
 - Rates, dividend yield and volatility are annualized decimals internally.
-- Time to expiry is ACT/365 years. For Yahoo Finance date-only expiries, the fetcher approximates expiry at 16:00 America/New_York; this is not an exchange settlement calendar.
-- Black–Scholes–Merton values are European-option model estimates.
-- Theta is annualized; Vega and Rho are per 1.00 decimal change.
-- The mispricing scan uses the sidebar's constant volatility as a research baseline. It does not prove arbitrage.
-- Monte Carlo risk tab computes VaR/CVaR on underlying price changes, not a complete options portfolio.
+- Time to expiry uses ACT/365. Yahoo date-only expiries are approximated at 16:00 America/New_York; this is not an exchange settlement calendar.
+- BSM assumes European exercise and continuous dividend yield. Many US single-stock options are American-style; early exercise and discrete dividends can make BSM IV a model-implied comparison rather than an exact market-consistent volatility.
+- The app uses one flat risk-free rate and continuous dividend yield per analysis, not a full maturity-matched yield/dividend curve.
+- Yahoo Finance/yfinance is an unofficial data interface; data may be delayed, incomplete, rate-limited, adjusted or unavailable. Verify all quotes and contract details with a broker/exchange before any decision.
+- The IV surface is built from noisy discrete option quotes and median-binned observations; it is a visualization, not a calibrated arbitrage-free volatility surface.
+- Greeks are local BSM sensitivities. In the time-decay chart, spot, rate, dividend yield and volatility are held constant while time falls; real markets do not hold them constant.
+- Strategy P&L and Greeks are per underlying share/one strategy unit. Contract multipliers, fees, bid/ask execution, margin, borrow, assignment, exercise, taxes and portfolio cross-margin are not automatically modeled.
+- The strategy engine re-marks using BSM and scenario assumptions; it is not a broker-grade backtester. Hedge share counts are theoretical first-order delta offsets.
+- Signals and strategy descriptions are descriptive educational rules, not forecasts or personalized financial advice.
 
-## Validation
-
-Run:
+## Tests
 
 ```bash
-python -m compileall .
+python -m compileall -q .
 python -m unittest discover -s tests -v
 ```
 
-The mathematical smoke tests are designed to run without a live market-data request. The Streamlit app itself requires installed dependencies and network access for Yahoo Finance retrieval.
+Network access to Yahoo Finance is intentionally not part of the unit tests; provider availability and live quote quality must be checked separately.
