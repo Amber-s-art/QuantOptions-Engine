@@ -246,3 +246,61 @@ def fetch_market_data(
         puts=puts,
         retrieved_at=datetime.now(timezone.utc),
     )
+
+
+def search_tickers(query: str, limit: int = 12) -> pd.DataFrame:
+    """Search Yahoo Finance's symbol search for stocks/ETFs with listed options.
+
+    Search results are discovery hints; availability is confirmed separately by
+    get_available_expirations(). Yahoo Finance is an unofficial research feed.
+    """
+    if not isinstance(query, str) or len(query.strip()) < 1:
+        return pd.DataFrame(columns=["symbol", "name", "exchange", "type"])
+    try:
+        import yfinance as yf
+        result = yf.Search(query.strip(), max_results=max(1, min(int(limit), 25)), news_count=0)
+        quotes = getattr(result, "quotes", None) or []
+    except Exception as exc:
+        raise MarketDataError(f"Ticker search failed for {query!r}: {exc}") from exc
+    rows = []
+    for item in quotes:
+        if not isinstance(item, dict):
+            continue
+        rows.append({
+            "symbol": item.get("symbol", ""),
+            "name": item.get("shortname") or item.get("longname") or "",
+            "exchange": item.get("exchange", ""),
+            "type": item.get("quoteType", ""),
+        })
+    return pd.DataFrame(rows, columns=["symbol", "name", "exchange", "type"])
+
+
+def fetch_multiple_expiries(ticker: str, expirations: list[str], *, risk_free_rate: float = 0.04) -> pd.DataFrame:
+    """Fetch and normalize several expiries with one provider object and spot lookup."""
+    symbol = _normalize_ticker(ticker)
+    requested = [pd.Timestamp(x).date().isoformat() for x in expirations]
+    if not requested:
+        return pd.DataFrame(columns=OPTION_COLUMNS + ["spot", "retrieved_at"])
+    instrument = _get_yfinance_ticker(symbol)
+    try:
+        available = get_available_expirations(symbol)
+        invalid = [x for x in requested if x not in available]
+        if invalid:
+            raise MarketDataError(f"Unavailable expirations for {symbol}: {invalid}")
+        spot = get_underlying_price(symbol)
+        retrieved = datetime.now(timezone.utc)
+        frames = []
+        for expiry in requested:
+            raw = instrument.option_chain(expiry)
+            maturity = _time_to_expiry(expiry)
+            calls = _clean_option_chain(raw.calls, "call", expiry, maturity)
+            puts = _clean_option_chain(raw.puts, "put", expiry, maturity)
+            frame = pd.concat([calls, puts], ignore_index=True)
+            frame["spot"] = spot
+            frame["retrieved_at"] = retrieved
+            frames.append(frame)
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=OPTION_COLUMNS + ["spot", "retrieved_at"])
+    except MarketDataError:
+        raise
+    except Exception as exc:
+        raise MarketDataError(f"Failed to retrieve multiple expiries for {symbol}: {exc}") from exc
