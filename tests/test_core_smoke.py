@@ -65,3 +65,25 @@ class CoreSmokeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class StrategyEngineTests(unittest.TestCase):
+    def test_single_long_call_payoff_and_delta(self):
+        import pandas as pd
+        from analytics.strategy_engine import analyze_strategy
+        legs = pd.DataFrame([{"option_type":"call", "strike":100, "time_to_expiry":0.5,
+                              "volatility":0.2, "quantity":1, "entry_price":5}])
+        result = analyze_strategy(legs, spot=100, rate=0.03)
+        self.assertGreater(result["net_delta"], 0)
+        self.assertAlmostEqual(result["expiry_pnl"][np.argmin(np.abs(result["spot_grid"]-100))], -5, delta=1.0)
+        self.assertEqual(len(result["scenario"]), 7)
+
+    def test_vertical_call_spread_has_capped_expiry_payoff(self):
+        import pandas as pd
+        from analytics.strategy_engine import analyze_strategy
+        legs = pd.DataFrame([
+            {"option_type":"call", "strike":100, "time_to_expiry":0.5, "volatility":0.2, "quantity":1, "entry_price":6},
+            {"option_type":"call", "strike":110, "time_to_expiry":0.5, "volatility":0.2, "quantity":-1, "entry_price":2},
+        ])
+        result = analyze_strategy(legs, spot=100, rate=0.03)
+        self.assertLessEqual(float(np.max(result["expiry_pnl"])), 6.1)
+        self.assertGreater(float(np.max(result["expiry_pnl"])), 3.5)
