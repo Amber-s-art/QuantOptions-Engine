@@ -607,7 +607,18 @@ elif page == "Strategy & Paper Book":
 
         if preset != "Custom Legs":
             p_col1, p_col2, p_col3 = st.columns(3)
-            p_tte = p_col1.number_input("Template expiry (years)", min_value=0.005, max_value=5.0, value=max(float(chain["time_to_expiry"].iloc[0]), 0.05), step=0.01)
+            default_tte = (
+                max(float(chain["time_to_expiry"].iloc[0]), 0.05)
+                if not chain.empty and "time_to_expiry" in chain.columns
+                else 30.0 / 365.0
+            )
+            p_tte = p_col1.number_input(
+                "Template expiry (years)",
+                min_value=0.005,
+                max_value=5.0,
+                value=default_tte,
+                step=0.01,
+            )
             p_vol = p_col2.number_input("Template vol (decimal)", min_value=0.01, max_value=3.0, value=0.22, step=0.01)
             p_qty = p_col3.number_input("Base quantity", min_value=1.0, max_value=1000.0, value=1.0, step=1.0)
 
