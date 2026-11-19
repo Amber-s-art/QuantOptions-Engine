@@ -132,6 +132,9 @@ class YFinanceProvider:
         return chain.calls, chain.puts
 
 
+_DEFAULT_PROVIDER = YFinanceProvider()
+
+
 def _normalize_ticker(ticker: str) -> str:
     if not isinstance(ticker, str) or not ticker.strip():
         raise ValueError("ticker must be a non-empty string.")
@@ -143,6 +146,38 @@ def _normalize_expiry(expiration: str) -> str:
         return pd.Timestamp(expiration).date().isoformat()
     except Exception as exc:
         raise ValueError(f"Invalid expiration date: {expiration!r}") from exc
+
+
+def get_available_expirations(ticker: str, provider: Optional[OptionChainProvider] = None) -> list[str]:
+    """Return sorted ISO expiration dates for a ticker."""
+    src = provider or _DEFAULT_PROVIDER
+    return src.get_expirations(_normalize_ticker(ticker))
+
+
+def search_tickers(query: str, limit: int = 12) -> pd.DataFrame:
+    """Search Yahoo Finance symbols for discovery hints."""
+    cols = ["symbol", "name", "exchange", "type"]
+    if not isinstance(query, str) or not query.strip():
+        return pd.DataFrame(columns=cols)
+    try:
+        import yfinance as yf
+
+        result = yf.Search(query.strip(), max_results=max(1, min(int(limit), 25)), news_count=0)
+        quotes = getattr(result, "quotes", None) or []
+    except Exception as exc:
+        raise MarketDataError(f"Ticker search failed for {query!r}: {exc}") from exc
+
+    rows = [
+        {
+            "symbol": item.get("symbol", ""),
+            "name": item.get("shortname") or item.get("longname") or "",
+            "exchange": item.get("exchange", ""),
+            "type": item.get("quoteType", ""),
+        }
+        for item in quotes
+        if isinstance(item, dict)
+    ]
+    return pd.DataFrame(rows, columns=cols)
 
 
 def time_to_expiry(
@@ -217,7 +252,7 @@ def fetch_market_data(
         raise ValueError("risk_free_rate must be finite or None.")
 
     req_expiry = _normalize_expiry(expiration)
-    src = provider or YFinanceProvider()
+    src = provider or _DEFAULT_PROVIDER
     retrieved_at = datetime.now(timezone.utc)
 
     available = src.get_expirations(symbol)
@@ -270,7 +305,7 @@ def fetch_multiple_expiries(
     if not requested:
         return pd.DataFrame(columns=OPTION_COLUMNS + ["spot", "retrieved_at"])
 
-    src = provider or YFinanceProvider()
+    src = provider or _DEFAULT_PROVIDER
     available = set(src.get_expirations(symbol))
     missing = [x for x in requested if x not in available]
     if missing:
